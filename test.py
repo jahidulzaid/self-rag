@@ -1,6 +1,6 @@
 from vllm import LLM, SamplingParams
 
-model = LLM("selfrag/selfrag_llama2_7b", download_dir="/gscratch/h2lab/akari/model_cache", dtype="half")
+model = LLM("selfrag/selfrag_llama2_7b", download_dir="./model_cache", dtype="half")
 sampling_params = SamplingParams(temperature=0.0, top_p=1.0, max_tokens=100, skip_special_tokens=False)
 
 def format_prompt(input, paragraph=None):
