@@ -21,7 +21,7 @@ LLM_MODEL = "gpt-oss:20b"
 def format_docs(docs):
     return "\n\n".join(doc.page_content for doc in docs)
 
-def load_squad_documents(split="train[:1000]"):
+def load_squad_documents(split="train[:200]"):
     dataset = load_dataset("rajpurkar/squad_v2", split=split)
     documents = []
 
@@ -166,14 +166,12 @@ def retrieve(state, retriever):
     return {"documents": documents, "question": question}
 
 def generate(state, rag_chain):
-    print("---GENERATE---")
     question = state["question"]
     documents = state["documents"]
     generation = rag_chain.invoke({"context": documents, "question": question})
     return {"documents": documents, "question": question, "generation": generation}
 
 def grade_documents(state, retrieval_grader):
-    print("---CHECK DOCUMENT RELEVANCE TO QUESTION---")
     question = state["question"]
     documents = state["documents"]
     filtered_docs = []
@@ -184,14 +182,12 @@ def grade_documents(state, retrieval_grader):
     return {"documents": filtered_docs, "question": question}
 
 def transform_query(state, question_rewriter):
-    print("---TRANSFORM QUERY---")
     question = state["question"]
     documents = state["documents"]
     better_question = question_rewriter.invoke({"question": question})
     return {"documents": documents, "question": better_question}
 
 def decide_to_generate(state):
-    print("---ASSESS GRADED DOCUMENTS---")
     if not state["documents"]:
         print("---DECISION: ALL DOCUMENTS ARE NOT RELEVANT TO QUESTION, TRANSFORM QUERY---")
         return "transform_query"
@@ -199,13 +195,31 @@ def decide_to_generate(state):
         print("---DECISION: GENERATE---")
         return "generate"
 
+from langchain_core.exceptions import OutputParserException
+
+def safe_invoke_grader(grader, inputs):
+    try:
+        return grader.invoke(inputs)
+    except OutputParserException as e:
+        print("⚠ JSON parse failed, retrying...")
+        raw = grader.llm.invoke(inputs)  # direct call to LLM
+        # try to extract JSON manually
+        import json, re
+        match = re.search(r"\{.*\}", raw, re.S)
+        if match:
+            return json.loads(match.group())
+        return {"score": "no"}  # default fail-safe
+
+
 def grade_generation_v_documents_and_question(state, hallucination_grader, answer_grader):
-    print("---CHECK HALLUCINATIONS---")
     question = state["question"]
     documents = state["documents"]
     generation = state["generation"]
 
-    score = hallucination_grader.invoke({"documents": documents, "generation": generation})
+    # score = hallucination_grader.invoke({"documents": documents, "generation": generation})
+    score = safe_invoke_grader(hallucination_grader, {"documents": documents, "generation": generation})
+
+    
     if score["score"] == "yes":
         print("---DECISION: GENERATION IS GROUNDED IN DOCUMENTS---")
         score = answer_grader.invoke({"question": question, "generation": generation})
@@ -281,11 +295,10 @@ def main():
     eval_df = pd.DataFrame(eval_rows)
     results_df = pd.DataFrame(results_rows)
 
-    eval_df.to_csv("selfrag_squad_eval_results.csv", index=False, encoding="utf-8")
-    results_df.to_csv("selfrag_squad_results_summary.csv", index=False, encoding="utf-8")
+    eval_df.to_csv("squadv2_eval_results.csv", index=False, encoding="utf-8")
+    results_df.to_csv("squadv2_results_summary.csv", index=False, encoding="utf-8")
 
-    print("\nSaved evaluation results to selfrag_squad_eval_results.csv")
-    print("Saved summary results to selfrag_squad_results_summary.csv")
+    print("\nSaved evaluations and summary results")
 
     print("\nFirst Query Output:")
     print(f"Query         : {eval_df.iloc[0]['query']}")
