@@ -191,10 +191,8 @@ def transform_query(state, question_rewriter):
 
 def decide_to_generate(state):
     if not state["documents"]:
-        print("---DECISION: ALL DOCUMENTS ARE NOT RELEVANT TO QUESTION, TRANSFORM QUERY---")
         return "transform_query"
     else:
-        print("---DECISION: GENERATE---")
         return "generate"
 
 def grade_generation_v_documents_and_question(state, hallucination_grader, answer_grader):
@@ -253,7 +251,7 @@ def main():
             retrieved_docs = [doc.page_content for doc in final_state.get("documents", [])]
 
         except Exception as e:
-            print(f"Error for Query ID {query_id}: {e}")
+            # print(f"Error for Query ID {query_id}: {e}")
             final_answer = "[ERROR]"
             retrieved_docs = []
 
