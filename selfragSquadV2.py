@@ -203,7 +203,7 @@ def safe_invoke_grader(grader_chain, raw_llm, inputs):
     try:
         return grader_chain.invoke(inputs)
     except Exception as e:
-        print("⚠ JSON parse failed, retrying...")
+        print("JSON parse failed, retrying...")
         raw = raw_llm.invoke(inputs)  # call the LLM directly
         import json, re
         match = re.search(r"\{.*\}", raw, re.S)
