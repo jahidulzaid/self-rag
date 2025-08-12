@@ -93,6 +93,8 @@ def create_rag_chain(llm):
 def create_hallucination_grader(llm):
     hallucination_prompt = PromptTemplate(
         template="""You are a grader assessing whether an answer is grounded in / supported by a set of facts. \n 
+        You must respond with ONLY valid JSON, no extra text.
+        The JSON must follow exactly this format: {"score": "yes"} or {"score": "no"}.
         Here are the facts:
         \n ------- \n
         {documents} 
@@ -102,7 +104,9 @@ def create_hallucination_grader(llm):
         Provide the binary score as a JSON with a single key 'score' and no preamble or explanation.""",
         input_variables=["generation", "documents"],
     )
-    return hallucination_prompt | llm | JsonOutputParser()
+    parser = JsonOutputParser()
+    chain = hallucination_prompt | llm | parser
+    return chain, llm
 
 def create_answer_grader(llm):
     answer_prompt = PromptTemplate(
@@ -189,26 +193,24 @@ def transform_query(state, question_rewriter):
 
 def decide_to_generate(state):
     if not state["documents"]:
-        print("---DECISION: ALL DOCUMENTS ARE NOT RELEVANT TO QUESTION, TRANSFORM QUERY---")
         return "transform_query"
     else:
-        print("---DECISION: GENERATE---")
         return "generate"
 
 from langchain_core.exceptions import OutputParserException
 
-def safe_invoke_grader(grader, inputs):
+def safe_invoke_grader(grader_chain, raw_llm, inputs):
     try:
-        return grader.invoke(inputs)
-    except OutputParserException as e:
+        return grader_chain.invoke(inputs)
+    except Exception as e:
         print("⚠ JSON parse failed, retrying...")
-        raw = grader.llm.invoke(inputs)  # direct call to LLM
-        # try to extract JSON manually
+        raw = raw_llm.invoke(inputs)  # call the LLM directly
         import json, re
         match = re.search(r"\{.*\}", raw, re.S)
         if match:
             return json.loads(match.group())
-        return {"score": "no"}  # default fail-safe
+        return {"score": "no"}  # fail-safe
+
 
 
 def grade_generation_v_documents_and_question(state, hallucination_grader, answer_grader):
@@ -217,7 +219,11 @@ def grade_generation_v_documents_and_question(state, hallucination_grader, answe
     generation = state["generation"]
 
     # score = hallucination_grader.invoke({"documents": documents, "generation": generation})
-    score = safe_invoke_grader(hallucination_grader, {"documents": documents, "generation": generation})
+    score = safe_invoke_grader(hallucination_grader, hallucination_llm, {
+    "documents": documents,
+    "generation": generation
+})
+
 
     
     if score["score"] == "yes":
@@ -246,6 +252,10 @@ def main():
     retriever = create_retriever(doc_splits)
     llm = Ollama(base_url=BASE_URL, model=LLM_MODEL)
     llm_json = Ollama(base_url=BASE_URL, model=LLM_MODEL, format="json", temperature=0)
+
+
+    hallucination_grader, hallucination_llm = create_hallucination_grader(llm_json)
+    answer_grader, answer_llm = create_answer_grader(llm_json)
 
     app = build_workflow(
         retriever,
