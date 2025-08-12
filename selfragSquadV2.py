@@ -166,12 +166,14 @@ def retrieve(state, retriever):
     return {"documents": documents, "question": question}
 
 def generate(state, rag_chain):
+
     question = state["question"]
     documents = state["documents"]
     generation = rag_chain.invoke({"context": documents, "question": question})
     return {"documents": documents, "question": question, "generation": generation}
 
 def grade_documents(state, retrieval_grader):
+
     question = state["question"]
     documents = state["documents"]
     filtered_docs = []
@@ -189,46 +191,25 @@ def transform_query(state, question_rewriter):
 
 def decide_to_generate(state):
     if not state["documents"]:
+        print("---DECISION: ALL DOCUMENTS ARE NOT RELEVANT TO QUESTION, TRANSFORM QUERY---")
         return "transform_query"
     else:
+        print("---DECISION: GENERATE---")
         return "generate"
-
-from langchain_core.exceptions import OutputParserException
-
-def safe_invoke_grader(grader, inputs):
-    try:
-        return grader.invoke(inputs)
-    except OutputParserException as e:
-        print("⚠ JSON parse failed, retrying...")
-        raw = grader.llm.invoke(inputs)  # direct call to LLM
-        # try to extract JSON manually
-        import json, re
-        match = re.search(r"\{.*\}", raw, re.S)
-        if match:
-            return json.loads(match.group())
-        return {"score": "no"}  # default fail-safe
-
 
 def grade_generation_v_documents_and_question(state, hallucination_grader, answer_grader):
     question = state["question"]
     documents = state["documents"]
     generation = state["generation"]
 
-    # score = hallucination_grader.invoke({"documents": documents, "generation": generation})
-    score = safe_invoke_grader(hallucination_grader, {"documents": documents, "generation": generation})
-
-    
+    score = hallucination_grader.invoke({"documents": documents, "generation": generation})
     if score["score"] == "yes":
-        print("---DECISION: GENERATION IS GROUNDED IN DOCUMENTS---")
         score = answer_grader.invoke({"question": question, "generation": generation})
         if score["score"] == "yes":
-            print("---DECISION: GENERATION ADDRESSES QUESTION---")
             return "useful"
         else:
-            print("---DECISION: GENERATION DOES NOT ADDRESS QUESTION---")
             return "not useful"
     else:
-        print("---DECISION: GENERATION IS NOT GROUNDED IN DOCUMENTS, RE-TRY---")
         return "not supported"
 
 def main():
@@ -296,7 +277,8 @@ def main():
     eval_df.to_csv("squadv2_eval_results.csv", index=False, encoding="utf-8")
     results_df.to_csv("squadv2_results_summary.csv", index=False, encoding="utf-8")
 
-    print("\nSaved evaluations and summary results")
+    print("\nSaved evaluations to root directory:")
+
 
     print("\nFirst Query Output:")
     print(f"Query         : {eval_df.iloc[0]['query']}")
